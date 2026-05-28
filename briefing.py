@@ -378,23 +378,17 @@ if calendar_lines:
 if summary_text:
     parts.append(f"📋 News-Überblick:\n{summary_text}")
 
-# News: Telegram erlaubt 4096 Zeichen – großzügiges Budget
-LIMIT = 3500
-base_msg = "\n\n".join(parts) + "\n\n📰 Top News:\n"
-budget   = LIMIT - len(base_msg)
-
 news_entries: list[str] = []
 for i, (s, t, u, d) in enumerate(top_articles[:5], 1):
-    title = t[:70] + "…" if len(t) > 70 else t          # Titel kürzen
-    entry = f"{i}. {s}: {title}\n   🔗 {u}"
-    cost  = len(entry) + (1 if news_entries else 0)      # +1 für \n-Trenner
-    if cost > budget:
-        break
-    news_entries.append(entry)
-    budget -= cost
+    title = t[:80] + "…" if len(t) > 80 else t
+    news_entries.append(f"{i}. {s}: {title}\n   🔗 {u}")
 
 parts.append("📰 Top News:\n" + ("\n".join(news_entries) if news_entries else "Nicht verfügbar"))
 message = "\n\n".join(parts)
+
+# Sicherheitsnetz: Telegram-Limit 4096 Zeichen
+if len(message) > 4096:
+    message = message[:4093] + "…"
 
 print("\n" + "─" * 44)
 print(message)
