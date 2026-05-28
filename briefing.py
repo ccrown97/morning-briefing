@@ -326,15 +326,7 @@ if GEMINI_KEY and articles:
             "generationConfig": {
                 "maxOutputTokens": 1000,
                 "temperature": 0.4,
-                "responseMimeType": "application/json",
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "picks":   {"type": "ARRAY", "items": {"type": "INTEGER"}},
-                        "summary": {"type": "STRING"},
-                    },
-                    "required": ["picks", "summary"],
-                },
+                "responseMimeType": "application/json",   # JSON-Modus, kein Schema nötig
             },
         }).encode()
         resp = post(
@@ -343,14 +335,18 @@ if GEMINI_KEY and articles:
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        raw    = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-        parsed = json.loads(raw)   # structured output → immer valides JSON
-        summary_text = parsed.get("summary", "").strip()
-        picks        = parsed.get("picks", [])
-        if picks and all(isinstance(p, int) for p in picks):
-            top_articles = [articles[i] for i in picks if 0 <= i < len(articles)]
-            if not top_articles:
-                top_articles = articles[:5]
+        raw = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+        try:
+            parsed       = json.loads(raw)
+            summary_text = parsed.get("summary", "").strip()
+            picks        = parsed.get("picks", [])
+            if picks and all(isinstance(p, int) for p in picks):
+                chosen = [articles[i] for i in picks if 0 <= i < len(articles)]
+                if chosen:
+                    top_articles = chosen
+        except (json.JSONDecodeError, KeyError):
+            # Fallback: Rohtext als Zusammenfassung, Artikel-Auswahl bleibt Fallback
+            summary_text = raw
         print(f"  AI-Zusammenfassung: OK ({len(top_articles)} Artikel gewählt)")
     except Exception as e:
         print(f"  ✗ AI-Zusammenfassung: {e}")
