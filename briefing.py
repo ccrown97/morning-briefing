@@ -268,21 +268,12 @@ print(f"  Länge: {len(message)} Zeichen")
 print("─" * 44 + "\n")
 
 
-# ── 8. WhatsApp senden (POST – kein URL-Längenproblem) ───────────────────────
+# ── 8. WhatsApp senden ────────────────────────────────────────────────────────
 
-data = urllib.parse.urlencode({
+params = urllib.parse.urlencode({
     "phone":  CALLMEBOT_PHONE,
     "apikey": CALLMEBOT_KEY,
     "text":   message,
-}).encode()
-req = urllib.request.Request(
-    "https://api.callmebot.com/whatsapp.php",
-    data=data,
-    headers={
-        "Content-Type":  "application/x-www-form-urlencoded",
-        "User-Agent":    "MorningBriefing/2.0",
-    },
-)
-with urllib.request.urlopen(req, timeout=15) as resp:
-    result = resp.read().decode("utf-8", errors="replace")
+})
+result = fetch(f"https://api.callmebot.com/whatsapp.php?{params}", timeout=15)
 print(f"  WhatsApp: {result.strip()[:200]}")
