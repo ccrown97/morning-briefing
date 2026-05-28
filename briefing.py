@@ -104,38 +104,56 @@ def parse_ics_today(ics_text: str, today: str) -> list[str]:
                 ev["summary"] = val
             elif base == "DTSTART":
                 ev["dtstart"] = val
-                ev["dtstart_key"] = key  # enthält ggf. TZID-Parameter
+            elif base == "DTEND":
+                ev["dtend"] = val
             elif base == "STATUS":
                 ev["status"] = val
 
-    result: list[str] = []
+    def _to_berlin(s: str):
+        """ICS-Datetime → naive Berlin-datetime (UTC+2)."""
+        if not s:
+            return None
+        try:
+            if s.endswith("Z"):
+                return datetime.strptime(s, "%Y%m%dT%H%M%SZ") + timedelta(hours=2)
+            if "T" in s:
+                return datetime.strptime(s[:15], "%Y%m%dT%H%M%S")
+        except Exception:
+            return None
+
+    def _bars(start, end) -> str:
+        """Dauer-Balken: 1 █ pro Stunde (min 1, max 8)."""
+        if start is None or end is None:
+            return "█"
+        mins = int((end - start).total_seconds() / 60)
+        return "█" * max(1, min(8, round(mins / 60)))
+
+    all_day: list[str] = []
+    timed:   list[str] = []
+
     for ev in events:
         if ev.get("status", "").upper() == "CANCELLED":
             continue
         dtstart = ev.get("dtstart", "")
+        dtend   = ev.get("dtend",   "")
         summary = ev.get("summary", "Kein Titel")
         try:
-            if len(dtstart) == 8:                          # VALUE=DATE: 20260528
+            if len(dtstart) == 8:                       # Ganztag: VALUE=DATE:20260528
                 date = f"{dtstart[:4]}-{dtstart[4:6]}-{dtstart[6:8]}"
                 if date == today:
-                    result.append(f"◻️    │ Ganztag: {summary}")
-            elif dtstart.endswith("Z"):                    # UTC: 20260528T070000Z
-                dt = datetime.strptime(dtstart, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-                dt_b = dt + timedelta(hours=2)
-                if dt_b.strftime("%Y-%m-%d") == today:
-                    result.append(f"{dt_b.strftime('%H:%M')} │ {summary}")
-            elif "T" in dtstart:                           # lokal/TZID: 20260528T090000
-                d = dtstart[:8]
-                t = dtstart[9:13]
-                date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
-                if date == today:
-                    if len(t) >= 4:
-                        result.append(f"{t[:2]}:{t[2:4]} │ {summary}")
-                    else:
-                        result.append(f"◻️    │ Ganztag: {summary}")
+                    all_day.append(f"◻️ Ganztag  │ {summary}")
+            else:
+                start_dt = _to_berlin(dtstart)
+                if start_dt and start_dt.strftime("%Y-%m-%d") == today:
+                    end_dt  = _to_berlin(dtend)
+                    start_s = start_dt.strftime("%H:%M")
+                    end_s   = end_dt.strftime("%H:%M") if end_dt else "?   "
+                    bars    = _bars(start_dt, end_dt)
+                    timed.append(f"{start_s}–{end_s} {bars} {summary}")
         except Exception:
             pass
-    return result
+
+    return all_day + sorted(timed)
 
 
 def first_sentence(text: str, max_chars: int = 140) -> str:
@@ -284,16 +302,17 @@ if GEMINI_KEY and articles:
     try:
         news_text = "\n".join(f"- {s}: {t}" for s, t, u, d in articles[:5])
         prompt = (
-            "Schreibe eine prägnante Zusammenfassung der heutigen Top-News "
-            "in 2–3 Sätzen auf Deutsch. Kontext: Leser ist Management-Finance-Student, "
-            "startet September 2026 als Restrukturierungsberater bei AlixPartners – "
-            "betone wirtschaftlich und beratungsrelevante Aspekte. "
-            "Nur Fließtext, kein Titel, keine Aufzählung.\n\n"
-            f"Nachrichten:\n{news_text}"
+            "Schreibe einen zusammenhängenden Nachrichtenüberblick auf Deutsch. "
+            "Gehe auf JEDES der folgenden Themen ein – kein Thema darf fehlen. "
+            "Schreibe 4–6 Sätze als Fließtext (kein Titel, keine Aufzählung, keine Zwischenüberschriften). "
+            "Kontext: Leser ist Management-Finance-Student, startet September 2026 als "
+            "Restrukturierungsberater bei AlixPartners – betone wirtschaftliche und "
+            "beratungsrelevante Implikationen, wo passend.\n\n"
+            f"Themen:\n{news_text}"
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 500, "temperature": 0.7},
+            "generationConfig": {"maxOutputTokens": 800, "temperature": 0.5},
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -332,13 +351,14 @@ if calendar_lines:
     parts.append("📅 Termine heute:\n" + "\n".join(calendar_lines[:8]))
 
 if summary_text:
-    # Auf max. 200 Zeichen kürzen (an Wortgrenze)
-    if len(summary_text) > 200:
-        summary_text = summary_text[:197].rsplit(" ", 1)[0] + "…"
+    # Auf max. 600 Zeichen kürzen (an Satzgrenze)
+    if len(summary_text) > 600:
+        cut = summary_text[:600].rfind(".")
+        summary_text = summary_text[:cut + 1] if cut != -1 else summary_text[:597] + "…"
     parts.append(f"📋 News-Überblick:\n{summary_text}")
 
-# News dynamisch: so viele Artikel wie ins 1550-Zeichen-Budget passen
-LIMIT = 1550
+# News: Telegram erlaubt 4096 Zeichen – großzügiges Budget
+LIMIT = 3500
 base_msg = "\n\n".join(parts) + "\n\n📰 Top News:\n"
 budget   = LIMIT - len(base_msg)
 
