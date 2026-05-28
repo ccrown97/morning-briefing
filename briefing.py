@@ -323,7 +323,19 @@ if GEMINI_KEY and articles:
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.4},
+            "generationConfig": {
+                "maxOutputTokens": 1000,
+                "temperature": 0.4,
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "picks":   {"type": "ARRAY", "items": {"type": "INTEGER"}},
+                        "summary": {"type": "STRING"},
+                    },
+                    "required": ["picks", "summary"],
+                },
+            },
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -331,20 +343,14 @@ if GEMINI_KEY and articles:
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        raw = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-        # JSON aus Antwort extrahieren (ggf. in Markdown-Codeblock gewrappt)
-        json_match = re.search(r'\{[\s\S]*\}', raw)
-        if json_match:
-            parsed       = json.loads(json_match.group())
-            summary_text = parsed.get("summary", "").strip()
-            picks        = parsed.get("picks", [])
-            if picks and all(isinstance(p, int) for p in picks):
-                top_articles = [articles[i] for i in picks if 0 <= i < len(articles)]
-                if not top_articles:
-                    top_articles = articles[:5]
-        else:
-            # Kein JSON → Rohtext als Zusammenfassung, Artikel-Fallback
-            summary_text = raw
+        raw    = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+        parsed = json.loads(raw)   # structured output → immer valides JSON
+        summary_text = parsed.get("summary", "").strip()
+        picks        = parsed.get("picks", [])
+        if picks and all(isinstance(p, int) for p in picks):
+            top_articles = [articles[i] for i in picks if 0 <= i < len(articles)]
+            if not top_articles:
+                top_articles = articles[:5]
         print(f"  AI-Zusammenfassung: OK ({len(top_articles)} Artikel gewählt)")
     except Exception as e:
         print(f"  ✗ AI-Zusammenfassung: {e}")
@@ -373,15 +379,6 @@ if calendar_lines:
     parts.append("📅 Termine heute:\n" + "\n".join(calendar_lines[:8]))
 
 if summary_text:
-    # Auf max. 800 Zeichen kürzen – nur an echtem Satzende (". " oder ".\n")
-    if len(summary_text) > 800:
-        window = summary_text[:800]
-        # Letztes echtes Satzende suchen: Punkt gefolgt von Leerzeichen/Zeilenumbruch
-        cut = max(window.rfind(". "), window.rfind(".\n"))
-        if cut != -1:
-            summary_text = summary_text[:cut + 1]
-        else:
-            summary_text = summary_text[:797] + "…"
     parts.append(f"📋 News-Überblick:\n{summary_text}")
 
 # News: Telegram erlaubt 4096 Zeichen – großzügiges Budget
