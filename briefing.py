@@ -223,14 +223,17 @@ articles: list[tuple[str, str, str, str]] = []   # (source, title, url, desc)
 for source, feed_url in RSS_FEEDS:
     try:
         root = ET.fromstring(fetch(feed_url, timeout=15))
+        count = 0
         for item in root.findall(".//item"):
             title = (item.findtext("title") or "").strip()
             link  = (item.findtext("link")  or "").strip()
             desc  = first_sentence(item.findtext("description") or "")
             if title and link.startswith("http"):
                 articles.append((source, title, link, desc))
-                break
-        print(f"  RSS {source}: OK")
+                count += 1
+                if count >= 3:      # max. 3 Artikel pro Quelle
+                    break
+        print(f"  RSS {source}: {count} Artikel")
     except Exception as e:
         print(f"  ✗ RSS {source}: {e}")
 
@@ -293,25 +296,34 @@ if OUTLOOK_ICAL_URLS:
     calendar_lines.sort()
 
 
-# ── 7. AI-Zusammenfassung via Gemini (falls API-Key vorhanden) ────────────────
+# ── 7. AI-Artikelauswahl + Zusammenfassung via Gemini ────────────────────────
 
 summary_text = ""
+top_articles  = articles[:5]   # Fallback: erste 5 Artikel
 
 if GEMINI_KEY and articles:
     try:
-        news_text = "\n".join(f"- {s}: {t}" for s, t, u, d in articles[:5])
+        news_list = "\n".join(
+            f"[{i}] {s}: {t}"
+            for i, (s, t, u, d) in enumerate(articles)
+        )
         prompt = (
-            "Schreibe einen zusammenhängenden Nachrichtenüberblick auf Deutsch. "
-            "Gehe auf JEDES der folgenden Themen ein – kein Thema darf fehlen. "
-            "Schreibe 4–6 Sätze als Fließtext (kein Titel, keine Aufzählung, keine Zwischenüberschriften). "
-            "Kontext: Leser ist Management-Finance-Student, startet September 2026 als "
-            "Restrukturierungsberater bei AlixPartners – betone wirtschaftliche und "
-            "beratungsrelevante Implikationen, wo passend.\n\n"
-            f"Themen:\n{news_text}"
+            "Du erhältst eine Liste von Nachrichtenartikeln.\n"
+            "Aufgaben:\n"
+            "1. Wähle die 5 wichtigsten Artikel aus – priorisiere Themen aus "
+            "Geopolitik, Wirtschaft, Finanzen und Unternehmensrestrukturierung "
+            "(Kontext: Leser startet September 2026 als Restrukturierungsberater "
+            "bei AlixPartners).\n"
+            "2. Schreibe einen zusammenhängenden Nachrichtenüberblick auf Deutsch, "
+            "der ALLE 5 gewählten Themen abdeckt. Genau 4–6 Sätze als Fließtext "
+            "(kein Titel, keine Aufzählung, kein Markdown).\n\n"
+            "Antworte NUR mit einem JSON-Objekt, ohne Markdown-Codeblock:\n"
+            '{"picks": [idx1, idx2, idx3, idx4, idx5], "summary": "Fließtext..."}\n\n'
+            f"Artikelliste:\n{news_list}"
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 800, "temperature": 0.5},
+            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.4},
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -319,10 +331,21 @@ if GEMINI_KEY and articles:
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        summary_text = (
-            resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-        )
-        print("  AI-Zusammenfassung: OK")
+        raw = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # JSON aus Antwort extrahieren (ggf. in Markdown-Codeblock gewrappt)
+        json_match = re.search(r'\{[\s\S]*\}', raw)
+        if json_match:
+            parsed       = json.loads(json_match.group())
+            summary_text = parsed.get("summary", "").strip()
+            picks        = parsed.get("picks", [])
+            if picks and all(isinstance(p, int) for p in picks):
+                top_articles = [articles[i] for i in picks if 0 <= i < len(articles)]
+                if not top_articles:
+                    top_articles = articles[:5]
+        else:
+            # Kein JSON → Rohtext als Zusammenfassung, Artikel-Fallback
+            summary_text = raw
+        print(f"  AI-Zusammenfassung: OK ({len(top_articles)} Artikel gewählt)")
     except Exception as e:
         print(f"  ✗ AI-Zusammenfassung: {e}")
 
@@ -350,10 +373,15 @@ if calendar_lines:
     parts.append("📅 Termine heute:\n" + "\n".join(calendar_lines[:8]))
 
 if summary_text:
-    # Auf max. 600 Zeichen kürzen (an Satzgrenze)
-    if len(summary_text) > 600:
-        cut = summary_text[:600].rfind(".")
-        summary_text = summary_text[:cut + 1] if cut != -1 else summary_text[:597] + "…"
+    # Auf max. 800 Zeichen kürzen – nur an echtem Satzende (". " oder ".\n")
+    if len(summary_text) > 800:
+        window = summary_text[:800]
+        # Letztes echtes Satzende suchen: Punkt gefolgt von Leerzeichen/Zeilenumbruch
+        cut = max(window.rfind(". "), window.rfind(".\n"))
+        if cut != -1:
+            summary_text = summary_text[:cut + 1]
+        else:
+            summary_text = summary_text[:797] + "…"
     parts.append(f"📋 News-Überblick:\n{summary_text}")
 
 # News: Telegram erlaubt 4096 Zeichen – großzügiges Budget
@@ -362,7 +390,7 @@ base_msg = "\n\n".join(parts) + "\n\n📰 Top News:\n"
 budget   = LIMIT - len(base_msg)
 
 news_entries: list[str] = []
-for i, (s, t, u, d) in enumerate(articles[:5], 1):
+for i, (s, t, u, d) in enumerate(top_articles[:5], 1):
     title = t[:70] + "…" if len(t) > 70 else t          # Titel kürzen
     entry = f"{i}. {s}: {title}\n   🔗 {u}"
     cost  = len(entry) + (1 if news_entries else 0)      # +1 für \n-Trenner
