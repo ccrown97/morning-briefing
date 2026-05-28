@@ -148,8 +148,7 @@ def parse_ics_today(ics_text: str, today: str) -> list[str]:
                     end_dt  = _to_berlin(dtend)
                     start_s = start_dt.strftime("%H:%M")
                     end_s   = end_dt.strftime("%H:%M") if end_dt else "?   "
-                    bars    = _bars(start_dt, end_dt)
-                    timed.append(f"{start_s}–{end_s} {bars} {summary}")
+                    timed.append(f"{start_s}–{end_s} │ {summary}")
         except Exception:
             pass
 
