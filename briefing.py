@@ -24,6 +24,7 @@ TELEGRAM_TOKEN       = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID     = os.environ["TELEGRAM_CHAT_ID"]
 GEMINI_KEY           = os.environ.get("GEMINI_API_KEY")          # optional
 TICKTICK_ACCESS      = os.environ.get("TICKTICK_ACCESS_TOKEN")   # optional
+OUTLOOK_ICAL_URLS    = [u.strip() for u in (os.environ.get("OUTLOOK_ICAL_URLS") or "").split(",") if u.strip()]
 
 RSS_FEEDS = [
     ("Handelsblatt", "https://www.handelsblatt.com/contentexport/feed/schlagzeilen"),
@@ -73,6 +74,66 @@ def post(url: str, data: bytes, headers: dict, timeout: int = 12) -> dict:
 
 def strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
+
+
+def parse_ics_today(ics_text: str, today: str) -> list[str]:
+    """Gibt heutige Kalendereinträge als formatierte Strings zurück."""
+    # Zeilenfortsetzungen auflösen (RFC 5545 Line Folding)
+    lines = ics_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    unfolded: list[str] = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and unfolded:
+            unfolded[-1] += line[1:]
+        else:
+            unfolded.append(line)
+
+    events: list[dict] = []
+    in_event = False
+    ev: dict = {}
+    for line in unfolded:
+        if line == "BEGIN:VEVENT":
+            in_event, ev = True, {}
+        elif line == "END:VEVENT":
+            in_event = False
+            if ev:
+                events.append(ev)
+        elif in_event and ":" in line:
+            key, _, val = line.partition(":")
+            base = key.split(";")[0].upper()
+            if base == "SUMMARY":
+                ev["summary"] = val
+            elif base == "DTSTART":
+                ev["dtstart"] = val
+                ev["dtstart_key"] = key  # enthält ggf. TZID-Parameter
+            elif base == "STATUS":
+                ev["status"] = val
+
+    result: list[str] = []
+    for ev in events:
+        if ev.get("status", "").upper() == "CANCELLED":
+            continue
+        dtstart = ev.get("dtstart", "")
+        summary = ev.get("summary", "Kein Titel")
+        try:
+            if len(dtstart) == 8:                          # VALUE=DATE: 20260528
+                date = f"{dtstart[:4]}-{dtstart[4:6]}-{dtstart[6:8]}"
+                if date == today:
+                    result.append(f"📅 {summary}")
+            elif dtstart.endswith("Z"):                    # UTC: 20260528T070000Z
+                dt = datetime.strptime(dtstart, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                dt_b = dt + timedelta(hours=2)
+                if dt_b.strftime("%Y-%m-%d") == today:
+                    result.append(f"📅 {dt_b.strftime('%H:%M')} {summary}")
+            elif "T" in dtstart:                           # lokal/TZID: 20260528T090000
+                d = dtstart[:8]
+                t = dtstart[9:13]
+                date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+                if date == today:
+                    time_str = f"{t[:2]}:{t[2:4]}" if len(t) >= 4 else ""
+                    result.append(f"📅 {time_str} {summary}".strip())
+        except Exception:
+            pass
+    return result
 
 
 def first_sentence(text: str, max_chars: int = 140) -> str:
@@ -176,7 +237,16 @@ if TICKTICK_ACCESS:
             for task in proj_data.get("tasks", []):
                 if task.get("status", 0) != 0:  # 0 = offen
                     continue
-                due = (task.get("dueDate") or "")[:10]
+                due_raw = task.get("dueDate") or ""
+                if not due_raw:
+                    continue
+                # TickTick speichert All-Day-Termine als UTC (22:00 UTC = 00:00 Berlin)
+                # → UTC-Datum in Berliner Zeit umrechnen vor dem Vergleich
+                try:
+                    due_utc = datetime.strptime(due_raw[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+                    due = (due_utc + timedelta(hours=2)).strftime("%Y-%m-%d")
+                except ValueError:
+                    due = due_raw[:10]
                 if due == berlin_today:
                     priority_icon = {1: "🔴", 3: "🟡", 5: "🔵"}.get(task.get("priority", 0), "◻️")
                     tasks_lines.append(f"{priority_icon} {task['title']}")
@@ -186,7 +256,25 @@ if TICKTICK_ACCESS:
         print(f"  ✗ TickTick: {e}")
 
 
-# ── 6. AI-Zusammenfassung via Gemini (falls API-Key vorhanden) ────────────────
+# ── 6. Outlook-Kalender (iCal, falls URLs vorhanden) ─────────────────────────
+
+calendar_lines: list[str] = []
+
+if OUTLOOK_ICAL_URLS:
+    berlin_today_cal = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%d")
+    for ical_url in OUTLOOK_ICAL_URLS:
+        try:
+            ics = fetch(ical_url, timeout=15)
+            entries = parse_ics_today(ics, berlin_today_cal)
+            calendar_lines.extend(entries)
+            print(f"  Outlook iCal: {len(entries)} Termine heute")
+        except Exception as e:
+            print(f"  ✗ Outlook iCal: {e}")
+    # Nach Uhrzeit sortieren (📅 HH:MM Titel oder 📅 Titel für All-Day)
+    calendar_lines.sort()
+
+
+# ── 7. AI-Zusammenfassung via Gemini (falls API-Key vorhanden) ────────────────
 
 summary_text = ""
 
@@ -237,6 +325,9 @@ parts.append(
 
 if tasks_lines:
     parts.append("✅ Aufgaben heute:\n" + "\n".join(tasks_lines[:8]))
+
+if calendar_lines:
+    parts.append("📅 Termine heute:\n" + "\n".join(calendar_lines[:8]))
 
 if summary_text:
     # Auf max. 200 Zeichen kürzen (an Wortgrenze)
