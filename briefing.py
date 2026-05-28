@@ -118,19 +118,21 @@ def parse_ics_today(ics_text: str, today: str) -> list[str]:
             if len(dtstart) == 8:                          # VALUE=DATE: 20260528
                 date = f"{dtstart[:4]}-{dtstart[4:6]}-{dtstart[6:8]}"
                 if date == today:
-                    result.append(f"📅 {summary}")
+                    result.append(f"◻️    │ Ganztag: {summary}")
             elif dtstart.endswith("Z"):                    # UTC: 20260528T070000Z
                 dt = datetime.strptime(dtstart, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
                 dt_b = dt + timedelta(hours=2)
                 if dt_b.strftime("%Y-%m-%d") == today:
-                    result.append(f"📅 {dt_b.strftime('%H:%M')} {summary}")
+                    result.append(f"{dt_b.strftime('%H:%M')} │ {summary}")
             elif "T" in dtstart:                           # lokal/TZID: 20260528T090000
                 d = dtstart[:8]
                 t = dtstart[9:13]
                 date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
                 if date == today:
-                    time_str = f"{t[:2]}:{t[2:4]}" if len(t) >= 4 else ""
-                    result.append(f"📅 {time_str} {summary}".strip())
+                    if len(t) >= 4:
+                        result.append(f"{t[:2]}:{t[2:4]} │ {summary}")
+                    else:
+                        result.append(f"◻️    │ Ganztag: {summary}")
         except Exception:
             pass
     return result
