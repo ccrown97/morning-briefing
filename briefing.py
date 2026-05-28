@@ -239,27 +239,50 @@ if tasks_lines:
     parts.append("✅ Aufgaben heute:\n" + "\n".join(tasks_lines[:8]))
 
 if summary_text:
+    # Auf max. 200 Zeichen kürzen (an Wortgrenze)
+    if len(summary_text) > 200:
+        summary_text = summary_text[:197].rsplit(" ", 1)[0] + "…"
     parts.append(f"📋 News-Überblick:\n{summary_text}")
 
-news_list = "\n".join(
-    f"{i}. {s}: {t}\n   🔗 {u}"
-    for i, (s, t, u, d) in enumerate(articles[:5], 1)
-)
-parts.append("📰 Top News:\n" + (news_list or "Nicht verfügbar"))
+# News dynamisch: so viele Artikel wie ins 1550-Zeichen-Budget passen
+LIMIT = 1550
+base_msg = "\n\n".join(parts) + "\n\n📰 Top News:\n"
+budget   = LIMIT - len(base_msg)
 
+news_entries: list[str] = []
+for i, (s, t, u, d) in enumerate(articles[:5], 1):
+    title = t[:70] + "…" if len(t) > 70 else t          # Titel kürzen
+    entry = f"{i}. {s}: {title}\n   🔗 {u}"
+    cost  = len(entry) + (1 if news_entries else 0)      # +1 für \n-Trenner
+    if cost > budget:
+        break
+    news_entries.append(entry)
+    budget -= cost
+
+parts.append("📰 Top News:\n" + ("\n".join(news_entries) if news_entries else "Nicht verfügbar"))
 message = "\n\n".join(parts)
 
 print("\n" + "─" * 44)
 print(message)
+print(f"  Länge: {len(message)} Zeichen")
 print("─" * 44 + "\n")
 
 
-# ── 8. WhatsApp senden ────────────────────────────────────────────────────────
+# ── 8. WhatsApp senden (POST – kein URL-Längenproblem) ───────────────────────
 
-params = urllib.parse.urlencode({
+data = urllib.parse.urlencode({
     "phone":  CALLMEBOT_PHONE,
     "apikey": CALLMEBOT_KEY,
     "text":   message,
-})
-result = fetch(f"https://api.callmebot.com/whatsapp.php?{params}", timeout=15)
-print(f"  WhatsApp: {result.strip()}")
+}).encode()
+req = urllib.request.Request(
+    "https://api.callmebot.com/whatsapp.php",
+    data=data,
+    headers={
+        "Content-Type":  "application/x-www-form-urlencoded",
+        "User-Agent":    "MorningBriefing/2.0",
+    },
+)
+with urllib.request.urlopen(req, timeout=15) as resp:
+    result = resp.read().decode("utf-8", errors="replace")
+print(f"  WhatsApp: {result.strip()[:200]}")
