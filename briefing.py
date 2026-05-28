@@ -310,24 +310,23 @@ if GEMINI_KEY and articles:
         prompt = (
             "Du erhältst eine Liste von Nachrichtenartikeln.\n"
             "Aufgaben:\n"
-            "1. Wähle die 5 wichtigsten Artikel aus – priorisiere Themen aus "
-            "Geopolitik, Wirtschaft, Finanzen und Unternehmensrestrukturierung "
-            "(Kontext: Leser startet September 2026 als Restrukturierungsberater "
-            "bei AlixPartners).\n"
+            "1. Wähle die 5 wichtigsten Artikel aus. Priorisiere Geopolitik, "
+            "Wirtschaft, Finanzen und Restrukturierungsthemen "
+            "(Leser startet September 2026 als Restrukturierungsberater bei AlixPartners).\n"
             "2. Schreibe einen zusammenhängenden Nachrichtenüberblick auf Deutsch, "
-            "der ALLE 5 gewählten Themen abdeckt. Genau 4–6 Sätze als Fließtext "
-            "(kein Titel, keine Aufzählung, kein Markdown).\n\n"
-            "Antworte NUR mit einem JSON-Objekt, ohne Markdown-Codeblock:\n"
-            '{"picks": [idx1, idx2, idx3, idx4, idx5], "summary": "Fließtext..."}\n\n'
+            "der ALLE 5 gewählten Themen abdeckt. Genau 4–6 Sätze, "
+            "Fließtext, kein Markdown, keine Aufzählung.\n\n"
+            "Antworte EXAKT in diesem Format (keine Abweichungen):\n"
+            "PICKS:idx1,idx2,idx3,idx4,idx5\n"
+            "Deine Zusammenfassung hier.\n\n"
+            "Beispiel:\n"
+            "PICKS:0,3,5,8,11\n"
+            "Die geopolitische Lage bleibt angespannt...\n\n"
             f"Artikelliste:\n{news_list}"
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "maxOutputTokens": 1000,
-                "temperature": 0.4,
-                "responseMimeType": "application/json",   # JSON-Modus, kein Schema nötig
-            },
+            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.4},
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -335,18 +334,20 @@ if GEMINI_KEY and articles:
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        raw = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-        try:
-            parsed       = json.loads(raw)
-            summary_text = parsed.get("summary", "").strip()
-            picks        = parsed.get("picks", [])
-            if picks and all(isinstance(p, int) for p in picks):
+        raw   = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # Format: "PICKS:0,3,5,8,11\nZusammenfassung..."
+        first, _, rest = raw.partition("\n")
+        if first.startswith("PICKS:"):
+            summary_text = rest.strip()
+            try:
+                picks = [int(x.strip()) for x in first[6:].split(",") if x.strip().isdigit()]
                 chosen = [articles[i] for i in picks if 0 <= i < len(articles)]
                 if chosen:
                     top_articles = chosen
-        except (json.JSONDecodeError, KeyError):
-            # Fallback: Rohtext als Zusammenfassung, Artikel-Auswahl bleibt Fallback
-            summary_text = raw
+            except ValueError:
+                pass
+        else:
+            summary_text = raw   # Fallback: ganzer Text als Zusammenfassung
         print(f"  AI-Zusammenfassung: OK ({len(top_articles)} Artikel gewählt)")
     except Exception as e:
         print(f"  ✗ AI-Zusammenfassung: {e}")
