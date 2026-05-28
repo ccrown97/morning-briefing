@@ -18,8 +18,8 @@ jobs:
 
       - name: Morning Briefing ausführen
         env:
-          CALLMEBOT_KEY:          ${{ secrets.CALLMEBOT_KEY }}
-          CALLMEBOT_PHONE:        ${{ secrets.CALLMEBOT_PHONE }}
+          TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
           TICKTICK_ACCESS_TOKEN:  ${{ secrets.TICKTICK_ACCESS_TOKEN }}
         run: python briefing.py

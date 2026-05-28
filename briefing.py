@@ -2,7 +2,7 @@
 """Morning Briefing – täglich 06:30 CEST via GitHub Actions.
 
 Features: GPS-Standort, Open-Meteo-Wetter (2-stündlich), RSS-News mit
-Gemini-AI-Zusammenfassung, TickTick-Aufgaben, WhatsApp via CallMeBot.
+Gemini-AI-Zusammenfassung, TickTick-Aufgaben, Telegram-Versand.
 Keine externen Paketabhängigkeiten – nur Python-Standardbibliothek.
 """
 
@@ -20,8 +20,8 @@ GIST_URL = (
     "https://gist.githubusercontent.com/ccrown97/"
     "b9e854688bb4c32e7069eb058f959660/raw/location.json"
 )
-CALLMEBOT_KEY        = os.environ["CALLMEBOT_KEY"]
-CALLMEBOT_PHONE      = os.environ["CALLMEBOT_PHONE"]
+TELEGRAM_TOKEN       = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID     = os.environ["TELEGRAM_CHAT_ID"]
 GEMINI_KEY           = os.environ.get("GEMINI_API_KEY")          # optional
 TICKTICK_ACCESS      = os.environ.get("TICKTICK_ACCESS_TOKEN")   # optional
 
@@ -268,12 +268,17 @@ print(f"  Länge: {len(message)} Zeichen")
 print("─" * 44 + "\n")
 
 
-# ── 8. WhatsApp senden ────────────────────────────────────────────────────────
+# ── 8. Telegram senden ───────────────────────────────────────────────────────
 
-params = urllib.parse.urlencode({
-    "phone":  CALLMEBOT_PHONE,
-    "apikey": CALLMEBOT_KEY,
-    "text":   message,
-})
-result = fetch(f"https://api.callmebot.com/whatsapp.php?{params}", timeout=15)
-print(f"  WhatsApp: {result.strip()[:200]}")
+body = json.dumps({
+    "chat_id":    TELEGRAM_CHAT_ID,
+    "text":       message,
+    "parse_mode": "",          # kein Markdown – Emojis + URLs funktionieren plain
+}).encode()
+resp = post(
+    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+    data=body,
+    headers={"Content-Type": "application/json"},
+)
+msg_id = resp.get("result", {}).get("message_id", "?")
+print(f"  Telegram: message_id={msg_id} ✅")
