@@ -1,0 +1,25 @@
+name: Morning Briefing
+
+on:
+  schedule:
+    # 06:30 CEST (UTC+2, Sommerzeit) = 04:30 UTC
+    # Hinweis: Im Winter (CET = UTC+1) feuert dieser Cron um 05:30 MEZ.
+    # Für 06:30 MEZ im Winter: cron '30 5 * * *' einstellen (Oktober–März).
+    - cron: '30 4 * * *'
+  workflow_dispatch:  # Manueller Testlauf: GitHub → Actions → Run workflow
+
+jobs:
+  send-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Morning Briefing ausführen
+        env:
+          OPENWEATHERMAP_KEY: ${{ secrets.OPENWEATHERMAP_KEY }}
+          CALLMEBOT_KEY:      ${{ secrets.CALLMEBOT_KEY }}
+          CALLMEBOT_PHONE:    ${{ secrets.CALLMEBOT_PHONE }}
+        run: python briefing.py
