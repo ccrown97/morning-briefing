@@ -203,7 +203,7 @@ if GEMINI_KEY and articles:
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 300},
+            "generationConfig": {"maxOutputTokens": 500, "temperature": 0.7},
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
