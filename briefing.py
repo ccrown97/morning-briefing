@@ -264,13 +264,20 @@ if TICKTICK_ACCESS:
             ))
             for task in proj_data.get("tasks", []):
                 total_tasks += 1
-                if task.get("status", 0) != 0:  # 0 = offen
-                    continue
                 due_raw = task.get("dueDate") or ""
+                status  = task.get("status", 0)
+                # DEBUG: alle Tasks mit Fälligkeit ausgeben
+                if due_raw:
+                    try:
+                        due_utc = datetime.strptime(due_raw[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+                        due_berlin = (due_utc + timedelta(hours=2)).strftime("%Y-%m-%d")
+                    except ValueError:
+                        due_berlin = due_raw[:10]
+                    print(f"    [{status}] {task.get('title','?')[:30]} | raw={due_raw[:25]} | berlin={due_berlin}")
+                if status != 0:
+                    continue
                 if not due_raw:
                     continue
-                # TickTick speichert All-Day-Termine als UTC (22:00 UTC = 00:00 Berlin)
-                # → UTC-Datum in Berliner Zeit umrechnen vor dem Vergleich
                 try:
                     due_utc = datetime.strptime(due_raw[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
                     due = (due_utc + timedelta(hours=2)).strftime("%Y-%m-%d")
