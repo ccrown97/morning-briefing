@@ -326,7 +326,11 @@ if GEMINI_KEY and articles:
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.4},
+            "generationConfig": {
+                "maxOutputTokens": 2048,
+                "temperature": 0.4,
+                "thinkingConfig": {"thinkingBudget": 0},  # Thinking aus → kein Token-Klau
+            },
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -334,7 +338,10 @@ if GEMINI_KEY and articles:
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        raw   = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+        candidate   = resp["candidates"][0]
+        finish      = candidate.get("finishReason", "?")
+        raw         = candidate["content"]["parts"][0]["text"].strip()
+        print(f"  Gemini: finishReason={finish}, raw_len={len(raw)}")
         # Format: "PICKS:0,3,5,8,11\nZusammenfassung..."
         first, _, rest = raw.partition("\n")
         if first.startswith("PICKS:"):
