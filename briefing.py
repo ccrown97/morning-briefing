@@ -313,15 +313,20 @@ if GEMINI_KEY and articles:
             "1. Wähle die 5 wichtigsten Artikel aus. Priorisiere Geopolitik, "
             "Wirtschaft, Finanzen und Restrukturierungsthemen "
             "(Leser startet September 2026 als Restrukturierungsberater bei AlixPartners).\n"
-            "2. Schreibe einen zusammenhängenden Nachrichtenüberblick auf Deutsch, "
-            "der ALLE 5 gewählten Themen abdeckt. Genau 4–6 Sätze, "
-            "Fließtext, kein Markdown, keine Aufzählung.\n\n"
-            "Antworte EXAKT in diesem Format (keine Abweichungen):\n"
+            "2. Schreibe für jeden gewählten Artikel genau einen Bullet-Point: "
+            "Ein prägnanter Satz mit dem wichtigsten Inhalt. "
+            "Format: • Stichwort: Kernaussage in einem Satz.\n\n"
+            "Antworte EXAKT in diesem Format (keine Abweichungen, kein Markdown außer •):\n"
             "PICKS:idx1,idx2,idx3,idx4,idx5\n"
-            "Deine Zusammenfassung hier.\n\n"
+            "• Stichwort: Kernaussage.\n"
+            "• Stichwort: Kernaussage.\n"
+            "• Stichwort: Kernaussage.\n"
+            "• Stichwort: Kernaussage.\n"
+            "• Stichwort: Kernaussage.\n\n"
             "Beispiel:\n"
             "PICKS:0,3,5,8,11\n"
-            "Die geopolitische Lage bleibt angespannt...\n\n"
+            "• Rumänien: Russische Drohnen verletzten NATO-Territorium und erhöhen den Druck auf die Allianz.\n"
+            "• USA/Iran: Beide Seiten signalisieren Kompromissbereitschaft, Ölpreise reagieren mit Rückgang.\n\n"
             f"Artikelliste:\n{news_list}"
         )
         body = json.dumps({
@@ -334,7 +339,7 @@ if GEMINI_KEY and articles:
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash:generateContent?key={GEMINI_KEY}",
+            f"gemini-2.5-flash-preview-05-20:generateContent?key={GEMINI_KEY}",
             data=body,
             headers={"Content-Type": "application/json"},
         )
