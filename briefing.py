@@ -161,6 +161,11 @@ def first_sentence(text: str, max_chars: int = 140) -> str:
     return (text[: idx + 1] if idx != -1 else text[:max_chars]).strip()
 
 
+def rss_excerpt(text: str, max_chars: int = 400) -> str:
+    """Längerer Auszug aus RSS-Beschreibung für Gemini-Kontext."""
+    return strip_html(text)[:max_chars].strip()
+
+
 # ── 1. GPS-Koordinaten ────────────────────────────────────────────────────────
 
 coords = fetch(GIST_URL).strip()
@@ -227,7 +232,7 @@ for source, feed_url in RSS_FEEDS:
         for item in root.findall(".//item"):
             title = (item.findtext("title") or "").strip()
             link  = (item.findtext("link")  or "").strip()
-            desc  = first_sentence(item.findtext("description") or "")
+            desc  = rss_excerpt(item.findtext("description") or "")
             if title and link.startswith("http"):
                 articles.append((source, title, link, desc))
                 count += 1
@@ -251,12 +256,14 @@ if TICKTICK_ACCESS:
 
         berlin_today = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%d")
 
+        total_tasks = 0
         for project in projects:
             proj_data = json.loads(fetch(
                 f"https://api.ticktick.com/open/v1/project/{project['id']}/data",
                 headers={"Authorization": f"Bearer {TICKTICK_ACCESS}"},
             ))
             for task in proj_data.get("tasks", []):
+                total_tasks += 1
                 if task.get("status", 0) != 0:  # 0 = offen
                     continue
                 due_raw = task.get("dueDate") or ""
@@ -273,7 +280,7 @@ if TICKTICK_ACCESS:
                     priority_icon = {1: "🔴", 3: "🟡", 5: "🔵"}.get(task.get("priority", 0), "◻️")
                     tasks_lines.append(f"{priority_icon} {task['title']}")
 
-        print(f"  TickTick: {len(tasks_lines)} Aufgaben heute")
+        print(f"  TickTick: {total_tasks} Aufgaben gesamt, {len(tasks_lines)} heute fällig (Berlin: {berlin_today})")
     except Exception as e:
         print(f"  ✗ TickTick: {e}")
 
@@ -303,31 +310,25 @@ top_articles  = articles[:5]   # Fallback: erste 5 Artikel
 
 if GEMINI_KEY and articles:
     try:
-        news_list = "\n".join(
-            f"[{i}] {s}: {t}"
+        news_list = "\n\n".join(
+            f"[{i}] {s} – {t}\n{d}"
             for i, (s, t, u, d) in enumerate(articles)
         )
         prompt = (
-            "Du erhältst eine Liste von Nachrichtenartikeln.\n"
+            "Du erhältst Nachrichtenartikel mit Titel und Textauszug.\n\n"
             "Aufgaben:\n"
             "1. Wähle die 5 wichtigsten Artikel aus. Priorisiere Geopolitik, "
             "Wirtschaft, Finanzen und Restrukturierungsthemen "
             "(Leser startet September 2026 als Restrukturierungsberater bei AlixPartners).\n"
-            "2. Schreibe für jeden gewählten Artikel genau einen Bullet-Point: "
-            "Ein prägnanter Satz mit dem wichtigsten Inhalt. "
-            "Format: • Stichwort: Kernaussage in einem Satz.\n\n"
-            "Antworte EXAKT in diesem Format (keine Abweichungen, kein Markdown außer •):\n"
+            "2. Schreibe eine Zusammenfassung auf Deutsch (~100 Wörter). "
+            "Gehe über die bloßen Schlagzeilen hinaus: erkläre Hintergründe, "
+            "Zusammenhänge und die wichtigsten Entwicklungen. "
+            "Verknüpfe die Themen wo sinnvoll zu einem kohärenten Lagebild. "
+            "Kein Markdown, keine Aufzählung, echter Fließtext.\n\n"
+            "Antworte EXAKT in diesem Format:\n"
             "PICKS:idx1,idx2,idx3,idx4,idx5\n"
-            "• Stichwort: Kernaussage.\n"
-            "• Stichwort: Kernaussage.\n"
-            "• Stichwort: Kernaussage.\n"
-            "• Stichwort: Kernaussage.\n"
-            "• Stichwort: Kernaussage.\n\n"
-            "Beispiel:\n"
-            "PICKS:0,3,5,8,11\n"
-            "• Rumänien: Russische Drohnen verletzten NATO-Territorium und erhöhen den Druck auf die Allianz.\n"
-            "• USA/Iran: Beide Seiten signalisieren Kompromissbereitschaft, Ölpreise reagieren mit Rückgang.\n\n"
-            f"Artikelliste:\n{news_list}"
+            "Deine ~100-Wort-Zusammenfassung als Fließtext.\n\n"
+            f"Artikel:\n{news_list}"
         )
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
@@ -339,7 +340,7 @@ if GEMINI_KEY and articles:
         }).encode()
         resp = post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash-preview-05-20:generateContent?key={GEMINI_KEY}",
+            f"gemini-3.5-flash:generateContent?key={GEMINI_KEY}",
             data=body,
             headers={"Content-Type": "application/json"},
         )
